@@ -1,0 +1,12 @@
+>useage of caching and APIs, users will come in and hit your 3rd party APIs. without a cache
+the api will hit the database or another 3rdpaty API.
+
+>As you scale, you get more volume, you will get more latency and latency. So you might have to put a cache or maybe databse replicas
+>We have a concept of rate limiting on 3rd party API calls eg 1000 requests per minute. so we wont be able to make that work
+
+>A common solution is caching infront of datastores.
+
+API -> CACHING LAYER[REDIS] -> 3rd party API/database
+
+
+We have time expiration on caches, so values in them dont live forever. TTL cache
