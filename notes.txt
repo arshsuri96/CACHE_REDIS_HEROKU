@@ -10,3 +10,9 @@ API -> CACHING LAYER[REDIS] -> 3rd party API/database
 
 
 We have time expiration on caches, so values in them dont live forever. TTL cache
+
+// we created handler to contain cache and data.
+//added handler to extract info from 3rd party API
+//next step is to add caching 
+
+

@@ -10,21 +10,21 @@ import (
 	"os"
 	"time"
 
-	"github.com/redis/go-redis/v9"
+	"github.com/go-redis/redis/v8"
 )
 
 func main() {
-	fmt.Println("Starting server")
+	fmt.Println("starting server")
 
 	api := NewAPI()
 
 	http.HandleFunc("/api", api.Handler)
-	http.ListenAndServe(":8080", nil)
 
+	http.ListenAndServe(fmt.Sprintf(":%s", os.Getenv("PORT")), nil)
 }
 
-func (a *api) Handler(w http.ResponseWriter, r *http.Request) {
-	fmt.Println("In the handler")
+func (a *API) Handler(w http.ResponseWriter, r *http.Request) {
+	fmt.Println("in the handler")
 
 	q := r.URL.Query().Get("q")
 	data, cacheHit, err := a.getData(r.Context(), q)
@@ -39,31 +39,29 @@ func (a *api) Handler(w http.ResponseWriter, r *http.Request) {
 		Data:  data,
 	}
 
-	err = json.NewEncoder(w).Encode(&resp)
+	err = json.NewEncoder(w).Encode(resp)
 	if err != nil {
-		fmt.Printf("Error in encoding response %v", err)
+		fmt.Printf("error encoding response: %v\n", err)
 		w.WriteHeader(http.StatusInternalServerError)
+		return
 	}
 }
 
-func (a *api) getData(ctx context.Context, q string) ([]NominatimResponse, bool, error) {
-
-	//is the query cached? [is the data present in cache?]
+func (a *API) getData(ctx context.Context, q string) ([]NominatimResponse, bool, error) {
+	// is query cached?
 	value, err := a.cache.Get(ctx, q).Result()
-
 	if err == redis.Nil {
-		//call external DS
+		// we want call external data source
 		escapedQ := url.PathEscape(q)
 		address := fmt.Sprintf("https://nominatim.openstreetmap.org/search?q=%s&format=json", escapedQ)
 
-		//extract value out of the url [ http.get ]
 		resp, err := http.Get(address)
 		if err != nil {
 			return nil, false, err
 		}
 
 		data := make([]NominatimResponse, 0)
-		//read that resp
+
 		err = json.NewDecoder(resp.Body).Decode(&data)
 		if err != nil {
 			return nil, false, err
@@ -74,51 +72,60 @@ func (a *api) getData(ctx context.Context, q string) ([]NominatimResponse, bool,
 			return nil, false, err
 		}
 
-		//Set the value
-		err = a.cache.Set(ctx, "q", bytes.NewBuffer(b).Bytes(), time.Second*15).Err()
+		// set the value
+		err = a.cache.Set(ctx, q, bytes.NewBuffer(b).Bytes(), time.Second*15).Err()
 		if err != nil {
-			panic(err)
+			return nil, false, err
 		}
 
-		//return the value
+		// return the response
 		return data, false, nil
-
 	} else if err != nil {
+		fmt.Printf("error calling redis: %v\n", err)
 		return nil, false, err
 	} else {
-		//build response
+		// cache hit
 		data := make([]NominatimResponse, 0)
 
+		// build response
 		err := json.Unmarshal(bytes.NewBufferString(value).Bytes(), &data)
 		if err != nil {
 			return nil, false, err
 		}
 
-		//return response
+		// return response
 		return data, true, nil
-
 	}
 }
 
-type api struct {
+type API struct {
 	cache *redis.Client
 }
 
-func NewAPI() *api {
-	redisAddress := fmt.Sprintf("%s:6379", os.Getenv("REDIS_URL"))
+func NewAPI() *API {
+	var opts *redis.Options
 
-	rdb := redis.NewClient(&redis.Options{
-		Addr:     redisAddress,
-		Password: "", // no password set
-		DB:       0,  // use default DB
-	})
+	if os.Getenv("LOCAL") == "true" {
+		redisAddress := fmt.Sprintf("%s:6379", os.Getenv("REDIS_URL"))
+		opts = &redis.Options{
+			Addr:     redisAddress,
+			Password: "", // no password set
+			DB:       0,  // use default DB
+		}
+	} else {
+		builtOpts, err := redis.ParseURL(os.Getenv("REDIS_URL"))
+		if err != nil {
+			panic(err)
+		}
+		opts = builtOpts
+	}
 
-	return &api{
+	rdb := redis.NewClient(opts)
+
+	return &API{
 		cache: rdb,
 	}
 }
-
-//we need to register a response from the PAI, also check whether its a cache hit or miss
 
 type APIResponse struct {
 	Cache bool                `json:"cache"`
